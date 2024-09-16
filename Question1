@@ -1,107 +1,117 @@
 import pandas as pd
 import numpy as np
-data = pd.read_csv('EnjoySports.csv')
-data.head()
-data.shape
-def Entropy(data):
-    d = data.iloc[:, -1]
-    d = d.value_counts()
-    s = 0
-    for v in d.keys():
-        p = d[v] / sum(d)
-        s -= p * np.log2(p)
-    return s
-def IG(data, A):
-    Es = Entropy(data)
-    val = data[A].unique()
-    s_c = data[A].value_counts()
-    s_v = []
 
-    for v in range(len(val)):
-        ds = data[data[A] == val[v]]
-        s = 0
-        for res in data.iloc[:, -1].unique():
+# Load the data
+dataset = pd.read_csv('EnjoySports.csv')
+dataset.head()
+dataset.shape
+
+# Function to calculate entropy
+def calc_entropy(dataset):
+    target_col = dataset.iloc[:, -1]
+    class_counts = target_col.value_counts()
+    entropy = 0
+    for val in class_counts.keys():
+        prob = class_counts[val] / sum(class_counts)
+        entropy -= prob * np.log2(prob)
+    return entropy
+
+# Function to calculate information gain (ID3)
+def info_gain(dataset, feature):
+    entropy_set = calc_entropy(dataset)
+    unique_vals = dataset[feature].unique()
+    feature_counts = dataset[feature].value_counts()
+    entropy_feature_vals = []
+
+    for val in range(len(unique_vals)):
+        subset = dataset[dataset[feature] == unique_vals[val]]
+        subset_entropy = 0
+        for outcome in dataset.iloc[:, -1].unique():
             try:
-                pi = ds.iloc[:, -1].value_counts()[res] / len(ds)
-                s -= pi * np.log2(pi)
+                prob_outcome = subset.iloc[:, -1].value_counts()[outcome] / len(subset)
+                subset_entropy -= prob_outcome * np.log2(prob_outcome)
             except:
-                s = 0
-        s_v.append(s)
+                subset_entropy = 0
+        entropy_feature_vals.append(subset_entropy)
 
-    for i in range(len(val)):
-        Es = Es - s_c[val[i]] * s_v[i] / sum(s_c)
+    for i in range(len(unique_vals)):
+        entropy_set -= feature_counts[unique_vals[i]] * entropy_feature_vals[i] / sum(feature_counts)
 
-    return Es
-class Node():
-    def _init_(self, name=None, attr=None):
-        self.name = name
-        self.attr = attr
+    return entropy_set
 
-    def call_(self):
-        return self.name
+# Class definition for a Node in the decision tree
+class TreeNode():
+    def __init__(self, feature=None, possible_values=None):
+        self.feature = feature
+        self.possible_values = possible_values
 
+    def get_name(self):
+        return self.feature
 
 # Function to select the best attribute based on Information Gain (ID3)
-def DTNode(data, features_used):
-    node = Node()
-    IGmax = 0
-    v_best = None
-    val_list = [v for v in data.columns[:-1] if v not in features_used]  # Ensure target column is excluded
+def select_best_feature(dataset, used_features):
+    node = TreeNode()
+    max_info_gain = 0
+    best_feature = None
+    candidate_features = [feature for feature in dataset.columns[:-1] if feature not in used_features]  # Exclude target column
 
-    if val_list != []:
-        for v in val_list:
-            ig = IG(data, v)
-            if ig > IGmax:
-                IGmax = ig
-                v_best = v
+    if candidate_features:
+        for feature in candidate_features:
+            gain = info_gain(dataset, feature)
+            if gain > max_info_gain:
+                max_info_gain = gain
+                best_feature = feature
 
-        if v_best:
-            features_used.append(v_best)
-            node.name = v_best
-            node.attr = data[v_best].unique()
+        if best_feature:
+            used_features.append(best_feature)
+            node.feature = best_feature
+            node.possible_values = dataset[best_feature].unique()
             return node
         else:
             return None
 
     return None
+
 # Recursive function to build the decision tree (ID3 algorithm)
-def DTClassifier(data, features_used):
-    root = DTNode(data, features_used)
-    DT_dict = {}
+def build_decision_tree(dataset, used_features):
+    root = select_best_feature(dataset, used_features)
+    decision_tree = {}
 
     # If root is found, continue building the tree
     if root is not None:
-        item = []
-        for attr in root.attr:
-            dataN = data[data[root.name] == attr]
-            if Entropy(dataN) == 0:  # If pure subset, it's a decision (leaf node)
-                item.append((attr, dataN.iloc[:, -1].unique()[0]))
+        branches = []
+        for value in root.possible_values:
+            subset = dataset[dataset[root.feature] == value]
+            if calc_entropy(subset) == 0:  # If pure subset, it's a decision (leaf node)
+                branches.append((value, subset.iloc[:, -1].unique()[0]))
             else:
-                dt = DTClassifier(dataN, features_used)
-                item.append((attr, dt))
+                subtree = build_decision_tree(subset, used_features)
+                branches.append((value, subtree))
 
-        DT_dict[root.name] = item
+        decision_tree[root.feature] = branches
 
-    return DT_dict
+    return decision_tree
+
 # Function to print the ID3 decision tree with attributes and its decisions
-def print_id3_tree(tree, depth=0):
+def display_decision_tree(tree, depth=0):
     if isinstance(tree, dict):
         for key, value in tree.items():
-            print(f"{'|   ' * depth}{key}")  # Print the attribute name
+            print(f"{'|   ' * depth}{key}")  # Print the feature name
             if isinstance(value, list):
-                for v in value:
-                    print(f"{'|   ' * (depth + 1)}{v[0]} ->", end=" ")
-                    if isinstance(v[1], dict):
+                for val in value:
+                    print(f"{'|   ' * (depth + 1)}{val[0]} ->", end=" ")
+                    if isinstance(val[1], dict):
                         print()
-                        print_id3_tree(v[1], depth + 2)  # Recursive call for further splits
+                        display_decision_tree(val[1], depth + 2)  # Recursive call for further splits
                     else:
-                        print(f"Decision: {v[1]}")  # Print the decision
+                        print(f"Decision: {val[1]}")  # Print the decision
     else:
         print(tree)
-# Build the ID3 decision tree
-features_used = []
-id3_decision_tree = DTClassifier(data, features_used)
 
-# Print the ID3 decision tree with attributes and decisions
+# Build the ID3 decision tree
+used_features = []
+id3_tree = build_decision_tree(dataset, used_features)
+
+# Print the ID3 decision tree with features and decisions
 print("Final ID3 Decision Tree:")
-print_id3_tree(id3_decision_tree)   
+display_decision_tree(id3_tree)
